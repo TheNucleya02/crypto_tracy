@@ -4,5 +4,5 @@ __pycache__/
 *.env
 *.png
 .vscode/
-crypto/  # if this is your venv folder.env
+crypto/  
 .env
