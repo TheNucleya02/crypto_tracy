@@ -1,20 +1,11 @@
 from exa_py import Exa
 import requests
+from requests.exceptions import ConnectionError, Timeout, TooManyRedirects
 import pandas as pd
-import time
 from crewai.tools import tool
-from crewai import LLM, Agent, Crew, Process, Task
-from datetime import datetime
-import yfinance as yf
-import matplotlib.pyplot as plt
+from crewai import LLM, Agent, Task, Crew, Process
 from dotenv import load_dotenv
 import os
-from fastapi import FastAPI
-from pydantic import BaseModel
-import requests
-from requests.exceptions import ConnectionError, Timeout, TooManyRedirects
-
-app = FastAPI()
 
 load_dotenv()
 EXA = os.getenv("EXA_API")
@@ -23,9 +14,6 @@ ALPHA = os.getenv("ALPHA_API")
 CMC = os.getenv("CMC_API")
 exa = Exa(EXA)
 
-# --- pydantic class ---
-class ticker(BaseModel):
-    ticker: str
 
 # --- News Tool ---
 @tool("search_tool")
@@ -215,42 +203,3 @@ writer = Agent(
     allow_delegation=False,
 )
 
-@app.post("/summary/")
-def final_summary(ticker: ticker) -> str:
-    symbol = ticker.ticker
-    get_news_analysis = Task(
-        description=f"Use the search tool to get news for the {symbol} cryptocurrency. The current date is {datetime.now()}. Compose the results into a helpful report",
-        expected_output="Create 1 paragraph report for the cryptocurrency, along with a prediction for the future trend.",
-        agent=news_analyst,
-    )
-    get_price_analysis = Task(
-        description=f"Use the price tool to get historical prices of {symbol} cryptocurrency. The current date is {datetime.now()}. Compose the results into a helpful report",
-        expected_output="Create 1 paragraph summary for the cryptocurrency, along with a prediction for the future trend.",
-        agent=price_analyst,
-    )
-    get_fear_and_greed_index = Task(
-        description="Use the fear and greed tool to find the index value and classification of fear and greed. The current date is {datetime.now()}. Compose the results into a helpful report ",
-        expected_output="Create 1 paragraph summary for the fear and greed index, along with a prediction for the future trend.",
-        agent = fear_and_greed_analyst
-    )
-    write_report = Task(
-        description="Use the reports from the news analyst and the price analyst to create a report that summarizes the cryptocurrency.",
-        expected_output="1 paragraph report that summarizes the market and predicts the future prices (trend) for the cryptocurrency. Also mention the summary report of fear and greed analysis.",
-        agent=writer,
-        context=[get_news_analysis, get_price_analysis, get_fear_and_greed_index],
-    )
-    crew = Crew(
-        agents=[news_analyst, price_analyst, fear_and_greed_analyst, writer],
-        tasks=[get_news_analysis, get_price_analysis, get_fear_and_greed_index, write_report],
-        verbose=False,
-        process=Process.sequential,
-        share_crew=False,
-        max_rpm=15,
-        function_calling_llm=llm,
-        step_callback=lambda x: time.sleep(1),   # Faster feedback for efficiency
-    )
-    try:
-        results = crew.kickoff()
-        return str(results)
-    except Exception as e:
-        return f"❌ Error generating summary for {symbol}: {e}"

@@ -4,4 +4,9 @@ crewai[tools]
 exa-py
 fastapi
 uvicorn
-yfinance
+python-jose[cryptography]
+passlib[bcrypt]
+python-multipart
+sqlalchemy
+databases[sqlite]
+alembic
