@@ -74,35 +74,7 @@ Built with modern Python technologies, this backend integrates with external API
 
 ```
 crypto-assistant-backend/
-├── app/
-│   ├── __init__.py
-│   ├── main.py              # FastAPI application entry point
-│   ├── database.py          # Database configuration and connection
-│   ├── models/
-│   │   ├── __init__.py
-│   │   ├── portfolio.py     # SQLAlchemy models
-│   │   └── schemas.py       # Pydantic schemas
-│   ├── routers/
-│   │   ├── __init__.py
-│   │   ├── portfolio.py     # Portfolio management endpoints
-│   │   ├── market.py        # Market data endpoints
-│   │   └── news.py          # News and insights endpoints
-│   ├── services/
-│   │   ├── __init__.py
-│   │   ├── coingecko.py     # CoinGecko API integration
-│   │   ├── news_service.py  # News aggregation service
-│   │   └── ai_service.py    # AI analysis service
-│   └── utils/
-│       ├── __init__.py
-│       └── helpers.py       # Utility functions
-├── tests/
-│   ├── __init__.py
-│   ├── test_portfolio.py
-│   └── test_market.py
-├── requirements.txt         # Project dependencies
-├── .env.example            # Environment variables template
-├── .gitignore              # Git ignore patterns
-└── README.md               # This file
+
 ```
 
 ---
