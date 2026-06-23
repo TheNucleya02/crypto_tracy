@@ -1,6 +1,6 @@
 pandas 
 numpy
-crewai[tools]
+crewai[tools,litellm]
 exa-py
 fastapi
 uvicorn

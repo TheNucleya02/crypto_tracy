@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, Float, String, Boolean, DateTime, Table, ForeignKey
+from sqlalchemy import create_engine, Column, Integer, Float, String, Boolean, DateTime, Table, ForeignKey, inspect, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from sqlalchemy.sql import func
@@ -45,12 +45,43 @@ class PortfolioEntryDB(Base):
     __tablename__ = "portfolio"
 
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    coin_id = Column(String, index=True)
     symbol = Column(String, index=True)
+    name = Column(String)
+    image = Column(String)
     amount = Column(Float)
     buy_price = Column(Float)
+    created_at = Column(DateTime, default=func.now())
+
+    user = relationship("DBUser")
 
 # Create tables
 Base.metadata.create_all(bind=engine)
+
+def ensure_portfolio_schema():
+    """Add columns introduced after the initial demo database was created."""
+    inspector = inspect(engine)
+    if "portfolio" not in inspector.get_table_names():
+        return
+
+    existing_columns = {column["name"] for column in inspector.get_columns("portfolio")}
+    column_defs = {
+        "user_id": "INTEGER",
+        "coin_id": "VARCHAR",
+        "name": "VARCHAR",
+        "image": "VARCHAR",
+        "created_at": "DATETIME",
+    }
+
+    with engine.begin() as connection:
+        for column_name, column_type in column_defs.items():
+            if column_name not in existing_columns:
+                connection.execute(
+                    text(f"ALTER TABLE portfolio ADD COLUMN {column_name} {column_type}")
+                )
+
+ensure_portfolio_schema()
 
 def get_db():
     """Dependency to get database session."""

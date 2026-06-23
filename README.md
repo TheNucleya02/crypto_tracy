@@ -158,7 +158,8 @@ DATABASE_URL=sqlite:///./crypto_portfolio.db
 
 # API Keys
 EXA_API = Your EXA_API
-GEMINI_API = Your Gemini API
+HF_TOKEN = Your Hugging Face access token
+HF_MODEL = huggingface/meta-llama/Llama-3.1-8B-Instruct
 ALPHA_API = Your Alpha API
 CMC_API = Your CMC API
 SECRET = Your Secret Key

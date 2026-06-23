@@ -45,6 +45,7 @@ async def register_user(user: UserCreate, db: Session = Depends(get_db)):
 
     new_user = crud.create_user(db=db, user=user)
     return User(
+        id=int(new_user.id),
         username=str(new_user.username),
         email=str(new_user.email),
         full_name=str(new_user.full_name),
@@ -91,7 +92,6 @@ def final_summary(ticker: Ticker, current_user: User = Depends(get_current_activ
             price_analyst,
             fear_and_greed_analyst,
             writer,
-            llm,
         )
     except ModuleNotFoundError as exc:
         missing_package = exc.name or "required package"
@@ -116,7 +116,7 @@ def final_summary(ticker: Ticker, current_user: User = Depends(get_current_activ
         agent=price_analyst,
     )
     get_fear_and_greed_index = Task(
-        description="Use the fear and greed tool to find the index value and classification of fear and greed. The current date is {datetime.now()}. Compose the results into a helpful report ",
+        description=f"Use the fear and greed tool to find the index value and classification of fear and greed. The current date is {datetime.now()}. Compose the results into a helpful report ",
         expected_output="Create 1 paragraph summary for the fear and greed index, along with a prediction for the future trend.",
         agent = fear_and_greed_analyst
     )
@@ -133,7 +133,6 @@ def final_summary(ticker: Ticker, current_user: User = Depends(get_current_activ
         process=Process.sequential,
         share_crew=False,
         max_rpm=15,
-        function_calling_llm=llm,
         step_callback=lambda x: time.sleep(1),   # Faster feedback for efficiency
     )
     try:
@@ -143,19 +142,37 @@ def final_summary(ticker: Ticker, current_user: User = Depends(get_current_activ
         return f"❌ Error generating summary for {symbol}: {e}"
     
 # Utility: fetch current price from CoinGecko
-async def get_current_price(symbol: str):
+COINGECKO_IDS = {
+    "BTC": "bitcoin",
+    "ETH": "ethereum",
+    "SOL": "solana",
+    "LINK": "chainlink",
+    "NEAR": "near",
+    "DOGE": "dogecoin",
+    "XRP": "ripple",
+    "ADA": "cardano",
+    "BNB": "binancecoin",
+    "MATIC": "matic-network",
+}
+
+async def get_current_price(symbol: str, coin_id: str | None = None):
+    coingecko_id = coin_id or COINGECKO_IDS.get(symbol.upper(), symbol.lower())
     url = f"https://api.coingecko.com/api/v3/simple/price"
-    params = {"ids": symbol.lower(), "vs_currencies": "usd"}
+    params = {"ids": coingecko_id, "vs_currencies": "usd"}
     async with httpx.AsyncClient() as client:
         response = await client.get(url, params=params)
         data = response.json()
-    return data.get(symbol.lower(), {}).get("usd", None)
+    return data.get(coingecko_id, {}).get("usd", None)
 
 
 # Add entry
 @app.post("/portfolio/add")
 def add_entry(entry: PortfolioEntry, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
-    db_entry = PortfolioEntryDB(**entry.dict())
+    payload = entry.model_dump()
+    payload["user_id"] = current_user.id
+    payload["coin_id"] = payload["coin_id"] or COINGECKO_IDS.get(entry.symbol, entry.symbol.lower())
+    payload["name"] = payload["name"] or entry.symbol
+    db_entry = PortfolioEntryDB(**payload)
     db.add(db_entry)
     db.commit()
     db.refresh(db_entry)
@@ -165,11 +182,11 @@ def add_entry(entry: PortfolioEntry, db: Session = Depends(get_db), current_user
 # Get all entries with current value & P/L
 @app.get("/portfolio", response_model=PortfolioListResponse)
 async def get_portfolio(db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
-    portfolio = db.query(PortfolioEntryDB).all()
+    portfolio = db.query(PortfolioEntryDB).filter(PortfolioEntryDB.user_id == current_user.id).all()
     results = []
 
     for entry in portfolio:
-        current_price = await get_current_price(str(entry.symbol))
+        current_price = await get_current_price(str(entry.symbol), str(entry.coin_id) if entry.coin_id else None)
         if not current_price:
             current_price = 0
 
@@ -179,13 +196,17 @@ async def get_portfolio(db: Session = Depends(get_db), current_user: User = Depe
 
         results.append({
             "id": entry.id,
+            "coin_id": entry.coin_id,
             "symbol": entry.symbol,
+            "name": entry.name,
+            "image": entry.image,
             "amount": entry.amount,
             "buy_price": entry.buy_price,
             "current_price": current_price,
             "invested_value": invested_value,
             "current_value": current_value,
-            "profit_loss": profit_loss
+            "profit_loss": profit_loss,
+            "created_at": entry.created_at.isoformat() if entry.created_at else None
         })
 
     return {"portfolio": results}
@@ -194,11 +215,14 @@ async def get_portfolio(db: Session = Depends(get_db), current_user: User = Depe
 # Get entry by ID with current price & P/L
 @app.get("/portfolio/{entry_id}", )
 async def get_entry(entry_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
-    entry = db.query(PortfolioEntryDB).filter(PortfolioEntryDB.id == entry_id).first()
+    entry = db.query(PortfolioEntryDB).filter(
+        PortfolioEntryDB.id == entry_id,
+        PortfolioEntryDB.user_id == current_user.id,
+    ).first()
     if not entry:
         raise HTTPException(status_code=404, detail="Entry not found")
 
-    current_price = await get_current_price(str(entry.symbol))
+    current_price = await get_current_price(str(entry.symbol), str(entry.coin_id) if entry.coin_id else None)
     if not current_price:
         current_price = 0
 
@@ -208,20 +232,27 @@ async def get_entry(entry_id: int, db: Session = Depends(get_db), current_user: 
 
     return {
         "id": entry.id,
+        "coin_id": entry.coin_id,
         "symbol": entry.symbol,
+        "name": entry.name,
+        "image": entry.image,
         "amount": entry.amount,
         "buy_price": entry.buy_price,
         "current_price": current_price,
         "invested_value": invested_value,
         "current_value": current_value,
-        "profit_loss": profit_loss
+        "profit_loss": profit_loss,
+        "created_at": entry.created_at.isoformat() if entry.created_at else None
     }
 
 
 # Delete entry
 @app.delete("/portfolio/{entry_id}")
 def delete_entry(entry_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
-    entry = db.query(PortfolioEntryDB).filter(PortfolioEntryDB.id == entry_id).first()
+    entry = db.query(PortfolioEntryDB).filter(
+        PortfolioEntryDB.id == entry_id,
+        PortfolioEntryDB.user_id == current_user.id,
+    ).first()
     if not entry:
         raise HTTPException(status_code=404, detail="Entry not found")
     db.delete(entry)

@@ -3,6 +3,7 @@ import string
 from typing import List
 
 class User(BaseModel):
+    id: int
     username: str = Field(..., min_length=2, max_length=15)
     email: EmailStr
     full_name:  str = Field(min_length=3, max_length=15)
@@ -40,7 +41,10 @@ class Ticker(BaseModel):
         return v.upper()  # Always store symbols in uppercase
 
 class PortfolioEntry(BaseModel):
+    coin_id: str | None = Field(default=None, min_length=2, max_length=50)
     symbol: str = Field(..., min_length=2, max_length=10)
+    name: str | None = Field(default=None, min_length=2, max_length=50)
+    image: str | None = None
     amount: float = Field(..., gt=0)
     buy_price: float = Field(..., gt=0)
 
@@ -52,13 +56,17 @@ class PortfolioEntry(BaseModel):
 
 class PortfolioResponse(BaseModel):
     id: int
+    coin_id: str | None = None
     symbol: str
+    name: str | None = None
+    image: str | None = None
     amount: float
     buy_price: float
     current_price: float
     invested_value: float
     current_value: float
     profit_loss: float
+    created_at: str | None = None
 
 class PortfolioListResponse(BaseModel):
     portfolio: List[PortfolioResponse]

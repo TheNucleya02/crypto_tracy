@@ -9,7 +9,8 @@ import os
 
 load_dotenv()
 EXA = os.getenv("EXA_API")
-GEMINI = os.getenv("GEMINI_API")
+HF_TOKEN = os.getenv("HF_TOKEN")
+HF_MODEL = os.getenv("HF_MODEL", "huggingface/meta-llama/Llama-3.1-8B-Instruct")
 ALPHA = os.getenv("ALPHA_API")
 CMC = os.getenv("CMC_API")
 exa = Exa(EXA)
@@ -88,7 +89,7 @@ def fear_and_greed_tool():
     }
     headers = {
         'Accepts': 'application/json',
-        'X-CMC_PRO_API_KEY': 'c0fddc48-b2f0-4d24-85c8-f61fdc333f5e'
+        'X-CMC_PRO_API_KEY': CMC or ''
     }
 
     try:
@@ -115,9 +116,9 @@ def fear_and_greed_tool():
 
 # --- LLM Model ---
 llm = LLM(
-    model="gemini/gemini-2.0-flash",
+    model=HF_MODEL,
     temperature=0.7,
-    api_key=GEMINI,
+    api_key=HF_TOKEN,
 )
 
 news_analyst = Agent(
