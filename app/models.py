@@ -70,3 +70,34 @@ class PortfolioResponse(BaseModel):
 
 class PortfolioListResponse(BaseModel):
     portfolio: List[PortfolioResponse]
+
+
+class ChatMessage(BaseModel):
+    id: int
+    role: str
+    content: str
+    created_at: str
+    model_config = {"from_attributes": True}
+
+
+class ChatThread(BaseModel):
+    id: int
+    user_id: int
+    title: str
+    created_at: str
+    updated_at: str | None = None
+    model_config = {"from_attributes": True}
+
+
+class ChatThreadWithMessages(ChatThread):
+    messages: list[ChatMessage] = []
+
+
+class ChatInput(BaseModel):
+    message: str = Field(..., min_length=1, max_length=2000)
+
+
+class ChatResponse(BaseModel):
+    response: str
+    thread_id: int
+    message_id: int

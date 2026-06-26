@@ -56,6 +56,32 @@ class PortfolioEntryDB(Base):
 
     user = relationship("DBUser")
 
+
+class ChatThreadDB(Base):
+    __tablename__ = "chat_threads"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    title = Column(String, nullable=False)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    user = relationship("DBUser")
+    messages = relationship("ChatMessageDB", back_populates="thread", cascade="all, delete-orphan", order_by="ChatMessageDB.created_at")
+
+
+class ChatMessageDB(Base):
+    __tablename__ = "chat_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    thread_id = Column(Integer, ForeignKey("chat_threads.id"), index=True)
+    role = Column(String, nullable=False)
+    content = Column(String, nullable=False)
+    created_at = Column(DateTime, default=func.now())
+
+    thread = relationship("ChatThreadDB", back_populates="messages")
+
+
 # Create tables
 Base.metadata.create_all(bind=engine)
 

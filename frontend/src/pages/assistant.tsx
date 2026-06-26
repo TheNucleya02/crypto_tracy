@@ -1,20 +1,17 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Bot, Send, Plus, MessageSquare, Trash2, Sparkles, TrendingUp, Wallet, ChartLine as LineChart, Newspaper, Clock, Eraser } from "lucide-react";
-import { useNavigate } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { EmptyState } from "@/components/shared/states";
 import {
   useThreads,
   useCreateThread,
   useDeleteThread,
   useMessages,
-  useAddMessage,
+  useSendChatMessage,
   useClearThread,
-  buildAIResponse,
 } from "@/hooks/useMarketData";
 import { cn, timeAgo } from "@/lib/utils";
 import type { ChatMessage } from "@/types";
@@ -27,7 +24,6 @@ const SUGGESTED_PROMPTS = [
 ];
 
 export default function Assistant() {
-  const navigate = useNavigate();
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
@@ -40,7 +36,7 @@ export default function Assistant() {
   const deleteThread = useDeleteThread();
   const clearThread = useClearThread();
   const { data: messages = [], isLoading: messagesLoading } = useMessages(activeThreadId);
-  const addMessage = useAddMessage(activeThreadId);
+  const sendChatMessage = useSendChatMessage(activeThreadId);
 
   const activeThread = threads.find((t) => t.id === activeThreadId);
 
@@ -77,23 +73,27 @@ export default function Assistant() {
       setIsStreaming(true);
       setPendingAssistantText("");
 
-      const response = buildAIResponse(text);
-      await addMessage.mutateAsync({ role: "user", content: text });
+      try {
+        const result = await sendChatMessage.mutateAsync(text);
+        const response = result.response;
 
-      // Simulate streaming
-      const words = response.split(" ");
-      let acc = "";
-      for (let i = 0; i < words.length; i++) {
-        acc += (i === 0 ? "" : " ") + words[i];
-        setPendingAssistantText(acc);
-        await new Promise((r) => setTimeout(r, 28));
+        // Simulate streaming for a nice UX
+        const words = response.split(" ");
+        let acc = "";
+        for (let i = 0; i < words.length; i++) {
+          acc += (i === 0 ? "" : " ") + words[i];
+          setPendingAssistantText(acc);
+          await new Promise((r) => setTimeout(r, 18));
+        }
+        setPendingAssistantText("");
+      } catch (e) {
+        const err = e instanceof Error ? e.message : "Something went wrong";
+        setPendingAssistantText(err);
+      } finally {
+        setIsStreaming(false);
       }
-
-      await addMessage.mutateAsync({ role: "assistant", content: response });
-      setPendingAssistantText("");
-      setIsStreaming(false);
     },
-    [activeThreadId, addMessage, createThread, isStreaming]
+    [activeThreadId, sendChatMessage, createThread, isStreaming]
   );
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -199,7 +199,7 @@ export default function Assistant() {
               <div className="text-sm font-semibold truncate">{activeThread?.title || "AI Market Assistant"}</div>
               <div className="flex items-center gap-1.5">
                 <div className="h-1.5 w-1.5 rounded-full bg-success animate-pulse-dot" />
-                <span className="text-[11px] text-muted-foreground">Powered by your crew</span>
+                <span className="text-[11px] text-muted-foreground">Powered by live data</span>
               </div>
             </div>
           </div>
@@ -307,7 +307,7 @@ export default function Assistant() {
               </Button>
             </div>
             <p className="mt-2 text-center text-[10px] text-muted-foreground">
-              AI-generated insights for educational purposes. Not financial advice.
+              AI-generated insights using live CoinGecko data. Not financial advice.
             </p>
           </form>
         </div>

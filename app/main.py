@@ -8,8 +8,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from .models import User, UserCreate, Ticker, PortfolioEntry
 from fastapi.middleware.cors import CORSMiddleware
-from .database import get_db, PortfolioEntryDB
-from .models import PortfolioListResponse
+from .database import get_db, PortfolioEntryDB, ChatThreadDB, ChatMessageDB
+from .models import PortfolioListResponse, ChatInput, ChatResponse
 from sqlalchemy.orm import Session
 from datetime import timedelta
 from datetime import datetime
@@ -19,6 +19,27 @@ import time
 import httpx
 import os
 
+from .ai_chat import generate_ai_response
+
+
+# Local chat thread + message storage (for when Supabase is unavailable)
+def _serialize_thread(t):
+    return {
+        "id": t.id,
+        "user_id": t.user_id,
+        "title": t.title,
+        "created_at": t.created_at.isoformat() if t.created_at else None,
+        "updated_at": t.updated_at.isoformat() if t.updated_at else None,
+    }
+
+
+def _serialize_message(m):
+    return {
+        "id": m.id,
+        "role": m.role,
+        "content": m.content,
+        "created_at": m.created_at.isoformat() if m.created_at else None,
+    }
 
 app = FastAPI(title="Momentum Crypto Suite API", version="1.0.0")
 
@@ -284,6 +305,109 @@ def delete_entry(entry_id: int, db: Session = Depends(get_db), current_user: Use
     db.delete(entry)
     db.commit()
     return {"message": "Entry deleted"}
+
+
+# ---------------------------------------------------------------------------
+# Chat / AI Assistant
+# ---------------------------------------------------------------------------
+
+@app.get("/chat/threads")
+async def list_threads(db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    """List all chat threads for the current user."""
+    threads = db.query(ChatThreadDB).filter(ChatThreadDB.user_id == current_user.id).order_by(ChatThreadDB.updated_at.desc()).all()
+    return [_serialize_thread(t) for t in threads]
+
+
+@app.post("/chat/threads")
+async def create_thread(
+    payload: ChatInput,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Create a new chat thread."""
+    title = payload.message[:60] or "New conversation"
+    thread = ChatThreadDB(user_id=current_user.id, title=title)
+    db.add(thread)
+    db.commit()
+    db.refresh(thread)
+    return _serialize_thread(thread)
+
+
+@app.delete("/chat/threads/{thread_id}")
+async def delete_thread(thread_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    """Delete a chat thread and its messages."""
+    thread = db.query(ChatThreadDB).filter(ChatThreadDB.id == thread_id, ChatThreadDB.user_id == current_user.id).first()
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    db.delete(thread)
+    db.commit()
+    return {"message": "Thread deleted"}
+
+
+@app.post("/chat/threads/{thread_id}/clear")
+async def clear_thread(thread_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    """Clear all messages in a thread."""
+    thread = db.query(ChatThreadDB).filter(ChatThreadDB.id == thread_id, ChatThreadDB.user_id == current_user.id).first()
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    db.query(ChatMessageDB).filter(ChatMessageDB.thread_id == thread_id).delete()
+    thread.title = "New conversation"
+    db.commit()
+    db.refresh(thread)
+    return _serialize_thread(thread)
+
+
+@app.get("/chat/threads/{thread_id}/messages")
+async def list_messages(thread_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    """List messages in a thread."""
+    thread = db.query(ChatThreadDB).filter(ChatThreadDB.id == thread_id, ChatThreadDB.user_id == current_user.id).first()
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    messages = db.query(ChatMessageDB).filter(ChatMessageDB.thread_id == thread_id).order_by(ChatMessageDB.created_at.asc()).all()
+    return [_serialize_message(m) for m in messages]
+
+
+@app.post("/chat/threads/{thread_id}/messages", response_model=ChatResponse)
+async def send_message(
+    thread_id: int,
+    payload: ChatInput,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Send a message to the AI assistant and get a response."""
+    thread = db.query(ChatThreadDB).filter(ChatThreadDB.id == thread_id, ChatThreadDB.user_id == current_user.id).first()
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found")
+
+    # Save user message
+    user_msg = ChatMessageDB(thread_id=thread_id, role="user", content=payload.message)
+    db.add(user_msg)
+    db.commit()
+    db.refresh(user_msg)
+
+    # Generate AI response
+    response_text = await generate_ai_response(payload.message)
+
+    # Save assistant message
+    assistant_msg = ChatMessageDB(thread_id=thread_id, role="assistant", content=response_text)
+    db.add(assistant_msg)
+    db.commit()
+    db.refresh(assistant_msg)
+
+    # Update thread timestamp
+    thread.updated_at = datetime.now()
+    db.commit()
+
+    return {"response": response_text, "thread_id": thread_id, "message_id": assistant_msg.id}
+
+
+# Public AI chat endpoint — works without authentication
+@app.post("/chat/anon", response_model=ChatResponse)
+async def chat_anon(payload: ChatInput):
+    """Generate an AI response without requiring authentication.
+    Thread/message history is not persisted server-side."""
+    response_text = await generate_ai_response(payload.message)
+    return {"response": response_text, "thread_id": 0, "message_id": 0}
 
 
 # ---------------------------------------------------------------------------

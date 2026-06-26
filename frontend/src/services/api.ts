@@ -1,15 +1,7 @@
-import { supabase } from "@/lib/supabase";
 import type { AuthUser, PortfolioEntry, ChatThread, ChatMessage } from "@/types";
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000").replace(/\/$/, "");
 const TOKEN_KEY = "crypto_assistant_token";
-
-function handleList<T>(fn: () => Promise<{ data: T | null; error: unknown }>): Promise<T> {
-  return fn().then(({ data, error }) => {
-    if (error) throw error;
-    return (data ?? []) as T;
-  });
-}
 
 function getAccessToken() {
   return window.localStorage.getItem(TOKEN_KEY);
@@ -32,10 +24,6 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new Error(detail || `Request failed with ${response.status}`);
   }
   return response.json() as Promise<T>;
-}
-
-function hasBackendSession() {
-  return hasStoredSession();
 }
 
 export async function login(username: string, password: string) {
@@ -76,7 +64,6 @@ export function logout() {
 }
 
 // ---------- Portfolio ----------
-const PORTFOLIO_TBL = "portfolio_entries";
 
 type BackendPortfolioEntry = PortfolioEntry & {
   id: number;
@@ -96,18 +83,8 @@ function fromBackendPortfolio(entry: BackendPortfolioEntry): PortfolioEntry {
 }
 
 export async function fetchPortfolio(): Promise<PortfolioEntry[]> {
-  if (hasBackendSession()) {
-    const data = await apiFetch<{ portfolio: BackendPortfolioEntry[] }>("/portfolio");
-    return data.portfolio.map(fromBackendPortfolio);
-  }
-
-  if (!supabase) return [];
-  const { data, error } = await supabase
-    .from(PORTFOLIO_TBL)
-    .select("*")
-    .order("created_at", { ascending: true });
-  if (error) throw error;
-  return (data ?? []) as PortfolioEntry[];
+  const data = await apiFetch<{ portfolio: BackendPortfolioEntry[] }>("/portfolio");
+  return data.portfolio.map(fromBackendPortfolio);
 }
 
 export async function addPortfolioEntry(input: {
@@ -118,111 +95,80 @@ export async function addPortfolioEntry(input: {
   amount: number;
   buy_price: number;
 }): Promise<PortfolioEntry> {
-  if (hasBackendSession()) {
-    const data = await apiFetch<{ data: BackendPortfolioEntry }>("/portfolio/add", {
-      method: "POST",
-      body: JSON.stringify(input),
-    });
-    return fromBackendPortfolio(data.data);
-  }
-
-  if (!supabase) throw new Error("Supabase not configured");
-  const { data, error } = await supabase
-    .from(PORTFOLIO_TBL)
-    .insert([input])
-    .select()
-    .single();
-  if (error) throw error;
-  return data as PortfolioEntry;
+  const data = await apiFetch<{ data: BackendPortfolioEntry }>("/portfolio/add", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return fromBackendPortfolio(data.data);
 }
 
 export async function deletePortfolioEntry(id: string): Promise<void> {
-  if (hasBackendSession()) {
-    await apiFetch(`/portfolio/${id}`, { method: "DELETE" });
-    return;
-  }
-
-  if (!supabase) throw new Error("Supabase not configured");
-  const { error } = await supabase.from(PORTFOLIO_TBL).delete().eq("id", id);
-  if (error) throw error;
+  await apiFetch(`/portfolio/${id}`, { method: "DELETE" });
 }
 
-// ---------- Chat threads ----------
-const THREADS_TBL = "chat_threads";
-const MESSAGES_TBL = "chat_messages";
+// ---------- Chat (authenticated) ----------
 
 export async function fetchThreads(): Promise<ChatThread[]> {
-  if (!supabase) return [];
-  const { data, error } = await supabase
-    .from(THREADS_TBL)
-    .select("*")
-    .order("updated_at", { ascending: false });
-  if (error) throw error;
-  return (data as ChatThread[]) ?? [];
+  const data = await apiFetch<Array<ChatThread>>("/chat/threads");
+  return data.map((t) => ({
+    ...t,
+    id: String(t.id),
+    created_at: t.created_at ?? new Date().toISOString(),
+    updated_at: t.updated_at ?? t.created_at ?? new Date().toISOString(),
+  }));
 }
 
 export async function createThread(title: string): Promise<ChatThread> {
-  if (!supabase) throw new Error("Supabase not configured");
-  const { data, error } = await supabase
-    .from(THREADS_TBL)
-    .insert([{ title }])
-    .select()
-    .single();
-  if (error) throw error;
-  return data as ChatThread;
+  const data = await apiFetch<ChatThread>("/chat/threads", {
+    method: "POST",
+    body: JSON.stringify({ message: title }),
+  });
+  return {
+    ...data,
+    id: String(data.id),
+    created_at: data.created_at ?? new Date().toISOString(),
+    updated_at: data.updated_at ?? data.created_at ?? new Date().toISOString(),
+  };
 }
 
 export async function deleteThread(id: string): Promise<void> {
-  if (!supabase) throw new Error("Supabase not configured");
-  const { error } = await supabase.from(THREADS_TBL).delete().eq("id", id);
-  if (error) throw error;
-}
-
-export async function renameThread(id: string, title: string): Promise<void> {
-  if (!supabase) throw new Error("Supabase not configured");
-  const { error } = await supabase
-    .from(THREADS_TBL)
-    .update({ title, updated_at: new Date().toISOString() })
-    .eq("id", id);
-  if (error) throw error;
+  await apiFetch(`/chat/threads/${id}`, { method: "DELETE" });
 }
 
 export async function resetThread(id: string, title: string): Promise<void> {
-  if (!supabase) throw new Error("Supabase not configured");
-  await supabase.from(MESSAGES_TBL).delete().eq("thread_id", id);
-  await supabase
-    .from(THREADS_TBL)
-    .update({ title, updated_at: new Date().toISOString() })
-    .eq("id", id);
+  await apiFetch(`/chat/threads/${id}/clear`, { method: "POST", body: JSON.stringify({ message: title }) });
 }
 
 export async function fetchMessages(threadId: string): Promise<ChatMessage[]> {
-  if (!supabase) return [];
-  const { data, error } = await supabase
-    .from(MESSAGES_TBL)
-    .select("*")
-    .eq("thread_id", threadId)
-    .order("created_at", { ascending: true });
-  if (error) throw error;
-  return (data as ChatMessage[]) ?? [];
+  const data = await apiFetch<Array<ChatMessage>>(`/chat/threads/${threadId}/messages`);
+  return data.map((m) => ({
+    ...m,
+    id: String(m.id),
+    timestamp: m.created_at ?? new Date().toISOString(),
+  }));
 }
 
-export async function addMessage(
+export async function sendChatMessage(
   threadId: string,
-  role: "user" | "assistant",
-  content: string
-): Promise<ChatMessage> {
-  if (!supabase) throw new Error("Supabase not configured");
-  const { data, error } = await supabase
-    .from(MESSAGES_TBL)
-    .insert([{ thread_id: threadId, role, content }])
-    .select()
-    .single();
-  if (error) throw error;
-  // bump thread updated_at
-  await supabase
-    .from(THREADS_TBL)
-    .update({ updated_at: new Date().toISOString() })
-    .eq("id", threadId);
-  return data as ChatMessage;
+  message: string
+): Promise<{ response: string; thread_id: number; message_id: number }> {
+  return apiFetch(`/chat/threads/${threadId}/messages`, {
+    method: "POST",
+    body: JSON.stringify({ message }),
+  });
+}
+
+// ---------- Anonymous chat (no auth required) ----------
+
+export async function sendAnonymousMessage(message: string): Promise<{ response: string }> {
+  const response = await fetch(`${API_BASE_URL}/chat/anon`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message }),
+  });
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(detail || `Request failed with ${response.status}`);
+  }
+  return response.json() as Promise<{ response: string }>;
 }
