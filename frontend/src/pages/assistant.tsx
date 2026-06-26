@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Bot, Send, Plus, MessageSquare, Trash2, Sparkles, TrendingUp, Wallet, ChartLine as LineChart, Newspaper, Clock, Eraser } from "lucide-react";
+import ReactMarkdown from "react-markdown";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -336,15 +337,37 @@ function MessageBubble({ message, streaming }: { message: ChatMessage; streaming
       </div>
       <div
         className={cn(
-          "flex-1 min-w-0 max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed",
+          "flex-1 min-w-0 max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed prose prose-sm dark:prose-invert max-w-none",
           isUser
             ? "bg-primary text-primary-foreground rounded-tr-md"
             : "bg-muted/60 text-foreground rounded-tl-md"
         )}
       >
-        <p className={cn(streaming && "after:inline-block after:ml-0.5 after:h-3.5 after:w-0.5 after:bg-foreground after:align-middle after:animate-pulse")}>
-          {message.content}
-        </p>
+        {isUser ? (
+          <p className="mb-0">{message.content}</p>
+        ) : (
+          <div className={cn("markdown-body", streaming && "after:inline-block after:ml-0.5 after:h-3.5 after:w-0.5 after:bg-foreground after:align-middle after:animate-pulse")}>
+            <ReactMarkdown
+              components={{
+                h1: ({ children }) => <h1 className="text-base font-bold mt-3 mb-1">{children}</h1>,
+                h2: ({ children }) => <h2 className="text-sm font-semibold mt-2 mb-1">{children}</h2>,
+                h3: ({ children }) => <h3 className="text-sm font-semibold mt-2 mb-1">{children}</h3>,
+                p: ({ children }) => <p className="mb-1.5 last:mb-0">{children}</p>,
+                ul: ({ children }) => <ul className="list-disc pl-4 my-1">{children}</ul>,
+                ol: ({ children }) => <ol className="list-decimal pl-4 my-1">{children}</ol>,
+                li: ({ children }) => <li className="mb-0.5">{children}</li>,
+                strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                em: ({ children }) => <em className="italic">{children}</em>,
+                code: ({ children }) => <code className="bg-black/20 rounded px-1 py-0.5 text-xs font-mono">{children}</code>,
+                pre: ({ children }) => <pre className="bg-black/20 rounded-lg p-2 overflow-x-auto my-2 text-xs font-mono">{children}</pre>,
+                a: ({ children, href }) => <a href={href} className="underline text-primary hover:text-primary/80" target="_blank" rel="noopener noreferrer">{children}</a>,
+                hr: () => <hr className="my-2 border-border/50" />,
+              }}
+            >
+              {message.content}
+            </ReactMarkdown>
+          </div>
+        )}
       </div>
     </div>
   );
